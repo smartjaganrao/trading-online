@@ -127,7 +127,13 @@ Activate the real-time sentinel to monitor volatility extremes and stop-loss pro
 uv run python main.py --monitor
 ```
 
-### 6. Post-Market Learning & Strategy Evolution
+### 6. Connect to Real Live Market (NSE Direct)
+Stream genuine National Stock Exchange live prices, real volume, and AI diagnostics on actual exchange candles:
+```bash
+uv run python main.py --real
+```
+
+### 7. Post-Market Learning & Strategy Evolution
 Analyze today's trades, calculate net friction costs, extract lessons, and update strategy memory:
 ```bash
 uv run python main.py --learn

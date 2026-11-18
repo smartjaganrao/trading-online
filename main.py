@@ -215,7 +215,19 @@ def run_trading_session(iterations: int = 20, delay_seconds: float = 0.5):
                 )
                 if res.get("status") == "FILLED":
                     journal.log_trade(res, mode="PAPER" if settings.paper_trading else "LIVE", reason=last_signal.get("reason", ""))
-                    console.print(f"[bold cyan]⚡ {last_signal['action']} ENTRY EXECUTED: 1 Lot of {settings.default_symbol} @ ₹{res.get('fill_price'):.2f} (SL: ₹{res.get('stop_loss')}, TGT: ₹{res.get('target')})[/bold cyan]")
+                    metrics = last_signal.get("metrics", {})
+                    why_panel = Panel(
+                        f"[bold green]🚀 ORDER FILLED:[/bold green] {last_signal['action']} 1 Lot {settings.default_symbol} @ ₹{res.get('fill_price'):,.2f}\n"
+                        f"[bold cyan]🎯 Why Taken (AI Confluence Diagnosis):[/bold cyan]\n"
+                        f"  1. [bold]Momentum Vector:[/bold] Fast EMA(9) @ ₹{metrics.get('ema_fast', 0):,.1f} {'above' if last_signal['action'] == 'BUY' else 'below'} Slow EMA(21) @ ₹{metrics.get('ema_slow', 0):,.1f}\n"
+                        f"  2. [bold]Trend Structural Band:[/bold] SuperTrend (10,3) is [{ 'green' if metrics.get('supertrend') == 'BULLISH' else 'red' }]{metrics.get('supertrend', 'N/A')}[/]\n"
+                        f"  3. [bold]Oscillator Validation:[/bold] RSI(14) is {metrics.get('rsi', 0):.1f} ({'Healthy Buying Acceleration' if last_signal['action'] == 'BUY' else 'Healthy Bearish Expansion'})\n"
+                        f"  4. [bold]Risk Invariant:[/bold] Hard Stop-Loss set at ₹{res.get('stop_loss'):,.2f} | Target at ₹{res.get('target'):,.2f} (1:2 Asymmetric R:R)\n"
+                        f"  5. [bold]Primary Rationale:[/bold] {last_signal.get('reason', 'N/A')}",
+                        title="💡 AI TRADE EXECUTION RATIONALE",
+                        border_style="cyan"
+                    )
+                    console.print(why_panel)
                 elif res.get("status") == "REJECTED":
                     console.print(f"[bold yellow]⚠️ ENTRY BLOCKED BY RISK GATE: {res.get('reason')}[/bold yellow]")
 
@@ -360,6 +372,58 @@ def run_live_feed(iterations: int = 30, delay_seconds: float = 1.0):
     console.print("\n[bold green]✅ Live Feed Completed.[/bold green]")
 
 
+def display_real_market():
+    from core.real_market import RealMarketFeed
+    console.print(Panel(
+        "[bold green]🌐 CONNECTED TO REAL NATIONAL STOCK EXCHANGE (NSE) MARKET FEED[/bold green]\n"
+        "[dim]Streaming actual live market quotes, real volume, and AI confluence on genuine exchange candles.[/dim]",
+        border_style="green"
+    ))
+
+    table = Table(title="🏛️ Real NSE Market Board (Live Quotes)", expand=True)
+    table.add_column("Symbol", style="bold")
+    table.add_column("Exchange Ticker", style="dim")
+    table.add_column("Real LTP (₹)", justify="right", style="bold cyan")
+    table.add_column("Change", justify="right")
+    table.add_column("Day High (₹)", justify="right", style="green")
+    table.add_column("Day Low (₹)", justify="right", style="red")
+
+    symbols = ["NSE:NIFTY 50", "NSE:BANKNIFTY", "NSE:RELIANCE", "NSE:TCS", "NSE:INFY", "NSE:HDFCBANK"]
+    for sym in symbols:
+        q = RealMarketFeed.get_real_quote(sym)
+        chg = q.get("change_pct", 0.0)
+        c_style = "bold green" if chg >= 0 else "bold red"
+        table.add_row(
+            sym,
+            q.get("ticker", "N/A"),
+            f"₹{q.get('ltp', 0.0):,.2f}",
+            f"[{c_style}]{chg:+.2f}%[/{c_style}]",
+            f"₹{q.get('high', 0.0):,.2f}",
+            f"₹{q.get('low', 0.0):,.2f}"
+        )
+    console.print(table)
+
+    # Real AI Analysis on genuine NIFTY 5-min candles
+    console.print("\n[bold cyan]🧠 AI Strategy Diagnostics on Real NSE Candles:[/bold cyan]")
+    df_real = RealMarketFeed.get_real_historical_candles("NSE:NIFTY 50", interval="5m", period="5d")
+    if not df_real.empty:
+        strategy = SuperTrendEMAStrategy()
+        signal = strategy.generate_signal(df_real)
+        metrics = signal.get("metrics", {})
+        action = signal.get("action", "HOLD")
+        act_color = "green" if action == "BUY" else ("red" if action == "SELL" else "yellow")
+
+        console.print(Panel(
+            f"[bold]Active Instrument:[/bold] NSE:NIFTY 50 (Genuine 5-Min Candles)\n"
+            f"[bold]Real Exchange Close:[/bold] ₹{metrics.get('close', 0.0):,.2f}\n"
+            f"[bold]EMA 9 (Fast):[/bold] ₹{metrics.get('ema_fast', 0.0):,.2f}  |  [bold]EMA 21 (Slow):[/bold] ₹{metrics.get('ema_slow', 0.0):,.2f}\n"
+            f"[bold]RSI (14):[/bold] {metrics.get('rsi', 0.0):.1f}  |  [bold]SuperTrend:[/bold] {metrics.get('supertrend', 'N/A')}\n\n"
+            f"[bold text-lg]AI Decision:[/bold text-lg] [{act_color}]{action}[/{act_color}] — {signal.get('reason', 'N/A')}",
+            title="⚡ Live AI Analysis on Real NSE Market Data ⚡",
+            border_style="bright_blue"
+        ))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Trading Online - Algorithmic Trading Platform")
     parser.add_argument("--mode", choices=["paper", "live"], default="paper", help="Execution mode")
@@ -373,6 +437,7 @@ def main():
     parser.add_argument("--backtest", action="store_true", help="Run 500-candle quantitative backtest with Sharpe & Drawdown")
     parser.add_argument("--live-feed", action="store_true", help="Stream real-time AI thought process and trade logs")
     parser.add_argument("--monitor", action="store_true", help="Activate AI Chief Risk Officer & Market Sentinel Overseer")
+    parser.add_argument("--real", action="store_true", help="Connect to the Real Live Market and stream actual NSE exchange quotes")
     parser.add_argument("--auto", action="store_true", help="Run autonomous 24/7 infinite trading loop")
     parser.add_argument("--symbol", type=str, default=None, help="Instrument symbol (e.g. 'NSE:NIFTY 50', 'NSE:RELIANCE')")
     parser.add_argument("--simulate", action="store_true", help="Run simulated trading loop")
@@ -411,6 +476,10 @@ def main():
     if args.monitor:
         from core.expert_monitor import run_expert_monitor_loop
         run_expert_monitor_loop(ticks=args.ticks, delay=0.8)
+        return
+
+    if args.real:
+        display_real_market()
         return
 
     if args.live_feed:

@@ -1,0 +1,51 @@
+//@version=5
+strategy("Trading Online - AI Confluence Strategy", overlay=true, initial_capital=100000, default_qty_type=strategy.fixed, default_qty_value=75)
+
+// ==========================================
+// 1. DUAL EMA INPUTS
+// ==========================================
+emaFastLen = input.int(9, title="Fast EMA Length")
+emaSlowLen = input.int(21, title="Slow EMA Length")
+
+emaFast = ta.ema(close, emaFastLen)
+emaSlow = ta.ema(close, emaSlowLen)
+
+plot(emaFast, title="EMA 9 (Fast)", color=color.cyan, linewidth=2)
+plot(emaSlow, title="EMA 21 (Slow)", color=color.orange, linewidth=2)
+
+// ==========================================
+// 2. SUPERTREND INPUTS
+// ==========================================
+atrPeriod = input.int(10, title="ATR Period")
+atrMultiplier = input.float(3.0, title="ATR Multiplier")
+
+[supertrend, direction] = ta.supertrend(atrMultiplier, atrPeriod)
+isBullishTrend = direction < 0
+
+plot(supertrend, title="SuperTrend", color=isBullishTrend ? color.green : color.red, linewidth=2, style=plot.style_linebr)
+
+// ==========================================
+// 3. RSI INPUTS
+// ==========================================
+rsiLen = input.int(14, title="RSI Length")
+rsiVal = ta.rsi(close, rsiLen)
+
+// ==========================================
+// 4. TRIPLE CONFLUENCE CONDITIONS
+// ==========================================
+longCondition = isBullishTrend and (emaFast > emaSlow) and (rsiVal > 52) and (rsiVal < 72)
+shortCondition = not isBullishTrend and (emaFast < emaSlow) and (rsiVal < 48) and (rsiVal > 28)
+
+// ==========================================
+// 5. STRATEGY EXECUTION (1:2 RISK TO REWARD)
+// ==========================================
+slPoints = 25.0
+tgtPoints = 55.0
+
+if (longCondition and strategy.position_size == 0)
+    strategy.entry("BUY", strategy.long)
+    strategy.exit("Long Exit", "BUY", loss=slPoints * 75, profit=tgtPoints * 75)
+
+if (shortCondition and strategy.position_size == 0)
+    strategy.entry("SELL", strategy.short)
+    strategy.exit("Short Exit", "SELL", loss=slPoints * 75, profit=tgtPoints * 75)

@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "ccxt",
     "kiteconnect>=5.2.2",
     "numpy>=2.5.5",
     "pandas>=3.1.1",
@@ -14,4 +15,5 @@ dependencies = [
     "requests>=2.34.2",
     "rich>=15.0.0",
     "tabulate>=0.10.0",
+    "yfinance>=1.8.0",
 ]
