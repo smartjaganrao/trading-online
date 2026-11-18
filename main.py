@@ -763,6 +763,9 @@ def main():
     parser = argparse.ArgumentParser(description="Trading Online - Algorithmic Trading Platform")
     parser.add_argument("--mode", choices=["paper", "live"], default="paper", help="Execution mode")
     parser.add_argument("--commodity", action="store_true", help="Launch MCX Commodity Trading Command Center & Live Intelligence")
+    parser.add_argument("--webhook", action="store_true", help="Launch TradingView Webhook Gateway server for automated alerts")
+    parser.add_argument("--port", type=int, default=5000, help="Webhook server port (default: 5000)")
+    parser.add_argument("--secret", type=str, default=None, help="Webhook authentication secret")
     parser.add_argument("--forex", action="store_true", help="Launch Forex (Currencies) Command Center & Global Market Clocks")
     parser.add_argument("--crypto", action="store_true", help="Launch 24/7 Cryptocurrency Algorithmic Trading Engine")
     parser.add_argument("--exchange", type=str, default=None, help="Crypto exchange: binance, bybit, okx, kraken (default: binance)")
@@ -793,6 +796,11 @@ def main():
             settings.default_symbol = ForexEngine.normalize_forex_symbol(args.symbol)
         else:
             settings.default_symbol = args.symbol
+
+    if args.webhook:
+        from execution.webhook_server import start_webhook_server
+        start_webhook_server(port=args.port, secret=args.secret)
+        return
 
     if args.commodity:
         display_commodity_market(symbol=settings.default_symbol)

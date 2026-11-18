@@ -61,6 +61,11 @@ class Settings(BaseModel):
     forex_default_symbol: str = Field(default_factory=lambda: os.getenv("FOREX_DEFAULT_SYMBOL", "CDS:USDINR"))
     forex_square_off_time: str = Field(default_factory=lambda: os.getenv("FOREX_SQUARE_OFF_TIME", "16:45"))
 
+    # TradingView Webhook Server Settings
+    webhook_host: str = Field(default_factory=lambda: os.getenv("WEBHOOK_HOST", "0.0.0.0"))
+    webhook_port: int = Field(default_factory=lambda: int(os.getenv("WEBHOOK_PORT", "5000")))
+    webhook_secret: str = Field(default_factory=lambda: os.getenv("WEBHOOK_SECRET", "trading_online_secure_token"))
+
     def get_square_off_time(self, symbol: str) -> str:
         from core.commodity import CommodityEngine
         from core.forex import ForexEngine
