@@ -1,0 +1,26 @@
+{
+  "total_days_analyzed": 2,
+  "cumulative_pnl": 27079.5,
+  "best_performing_symbols": {},
+  "key_learned_principles": [
+    "Strict hard stop-loss prevents catastrophic retail drawdowns.",
+    "Trending index (NIFTY) has 2-3x higher win rate than choppy individual equities.",
+    "Dynamic trailing stop-loss locks in peak gains during high-volatility 2:45-3:15 PM Power Hour.",
+    "Midday (11:30 AM - 1:00 PM) chop produces whipsaws; filter signals during low volume."
+  ],
+  "regime_insights": {
+    "2026-11-18": {
+      "net_pnl": 13539.75,
+      "win_rate": 42.9,
+      "trades_count": 7,
+      "lessons": [
+        "\u2705 Confluence Strategy (SuperTrend + Dual EMA + Trailing SL) provided positive expectancy.",
+        "\ud83d\udee1\ufe0f Capital Preservation Check: Hard Stop-Losses cut losses swiftly before account damage.",
+        "\ud83d\ude80 High-Leverage Power Hour (2:45 PM) captured outsized gamma expansion (+17.65% ROI).",
+        "\ud83d\udd52 3:15 PM EOD Square-off successfully avoided overnight theta bleed and gap risk.",
+        "\ud83d\udcca Institutional Regime Gate: ADX & Choppiness Index filter blocks false breakout whipsaws.",
+        "\u23f8\ufe0f Midday Protection: 11:30 AM - 1:30 PM no-trade zone guards capital during low liquidity."
+      ]
+    }
+  }
+}

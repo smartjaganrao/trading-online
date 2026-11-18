@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+venv/
+
+# Environment & Credentials
+.env
+.kite_session.json
+*.pem
+credentials.json
+
+# Logs, Data & OS
+logs/
+data/trades_*.csv
+data/cache/
+.DS_Store
