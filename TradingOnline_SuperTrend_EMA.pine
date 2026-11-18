@@ -1,51 +1,148 @@
 //@version=5
-strategy("Trading Online - AI Confluence Strategy", overlay=true, initial_capital=100000, default_qty_type=strategy.fixed, default_qty_value=75)
+strategy("Trading Online - Institutional AI Confluence Strategy", 
+         shorttitle="TradingOnline Pro", 
+         overlay=true, 
+         initial_capital=100000, 
+         default_qty_type=strategy.fixed, 
+         default_qty_value=75,
+         commission_type=strategy.commission.cash_per_order,
+         commission_value=20.0,
+         slippage=1)
 
-// ==========================================
-// 1. DUAL EMA INPUTS
-// ==========================================
-emaFastLen = input.int(9, title="Fast EMA Length")
-emaSlowLen = input.int(21, title="Slow EMA Length")
+// ==============================================================================
+// 1. INPUT PARAMETERS
+// ==============================================================================
+grp_ema      = "─── EMA Momentum Ribbon ───"
+emaFastLen   = input.int(9, title="Fast EMA Length", group=grp_ema)
+emaSlowLen   = input.int(21, title="Slow EMA Length", group=grp_ema)
 
+grp_st       = "─── SuperTrend Directional Filter ───"
+atrPeriod    = input.int(10, title="ATR Period", group=grp_st)
+atrMult      = input.float(3.0, title="ATR Multiplier", step=0.1, group=grp_st)
+
+grp_regime   = "─── Statistical Regime & Chop Gate ───"
+rsiLen       = input.int(14, title="RSI Length", group=grp_regime)
+adxThreshold = input.float(22.0, title="Min ADX Trend Strength", group=grp_regime)
+chopMax      = input.float(61.8, title="Max Choppiness Index", group=grp_regime)
+useChopGate  = input.bool(true, title="Enable ADX & Chop Filter", group=grp_regime)
+
+grp_session  = "─── Intraday Session & Midday Gate ───"
+useMiddayGate= input.bool(true, title="Block Midday False Breakouts (11:30 - 13:30 IST)", group=grp_session)
+autoSquareOff= input.bool(true, title="Mandatory Intraday Square-off (15:15 IST)", group=grp_session)
+
+grp_risk     = "─── Risk & Position Sizing ───"
+slPoints     = input.float(25.0, title="Stop Loss Points (NIFTY)", group=grp_risk)
+tgtPoints    = input.float(55.0, title="Take Profit Points (NIFTY)", group=grp_risk)
+
+// ==============================================================================
+// 2. QUANTITATIVE INDICATOR CALCULATIONS
+// ==============================================================================
+// Dual EMA
 emaFast = ta.ema(close, emaFastLen)
 emaSlow = ta.ema(close, emaSlowLen)
 
-plot(emaFast, title="EMA 9 (Fast)", color=color.cyan, linewidth=2)
-plot(emaSlow, title="EMA 21 (Slow)", color=color.orange, linewidth=2)
+// SuperTrend
+[supertrend, direction] = ta.supertrend(atrMult, atrPeriod)
+isBullTrend = direction < 0
 
-// ==========================================
-// 2. SUPERTREND INPUTS
-// ==========================================
-atrPeriod = input.int(10, title="ATR Period")
-atrMultiplier = input.float(3.0, title="ATR Multiplier")
-
-[supertrend, direction] = ta.supertrend(atrMultiplier, atrPeriod)
-isBullishTrend = direction < 0
-
-plot(supertrend, title="SuperTrend", color=isBullishTrend ? color.green : color.red, linewidth=2, style=plot.style_linebr)
-
-// ==========================================
-// 3. RSI INPUTS
-// ==========================================
-rsiLen = input.int(14, title="RSI Length")
+// RSI
 rsiVal = ta.rsi(close, rsiLen)
 
-// ==========================================
-// 4. TRIPLE CONFLUENCE CONDITIONS
-// ==========================================
-longCondition = isBullishTrend and (emaFast > emaSlow) and (rsiVal > 52) and (rsiVal < 72)
-shortCondition = not isBullishTrend and (emaFast < emaSlow) and (rsiVal < 48) and (rsiVal > 28)
+// ADX (Average Directional Index - Period 14)
+[diPlus, diMinus, adxVal] = ta.dmi(14, 14)
 
-// ==========================================
-// 5. STRATEGY EXECUTION (1:2 RISK TO REWARD)
-// ==========================================
-slPoints = 25.0
-tgtPoints = 55.0
+// Choppiness Index (CHOP 14)
+chopSumTr   = math.sum(ta.tr(true), 14)
+chopRange   = ta.highest(high, 14) - ta.lowest(low, 14)
+chopVal     = 100 * math.log10(chopSumTr / (chopRange + 0.0001)) / math.log10(14)
 
+// Regime Check: Trending vs Choppy Consolidation
+isMarketTrending = not useChopGate or (adxVal >= adxThreshold and chopVal < chopMax)
+
+// Session Time Filters (IST = UTC+5:30)
+// 11:30 AM to 1:30 PM IST = 06:00 to 08:00 UTC
+// 3:15 PM IST = 09:45 UTC
+isMiddayChop = useMiddayGate and not na(time(timeframe.period, "0600-0800:23456"))
+isSquareOff  = autoSquareOff and not na(time(timeframe.period, "0945-1000:23456"))
+
+// ==============================================================================
+// 3. CHART VISUALIZATION
+// ==============================================================================
+// EMA Plots
+p_emaFast = plot(emaFast, title="EMA 9 (Fast)", color=color.new(#00e5ff, 0), linewidth=2)
+p_emaSlow = plot(emaSlow, title="EMA 21 (Slow)", color=color.new(#ff9100, 0), linewidth=2)
+fill(p_emaFast, p_emaSlow, color=emaFast > emaSlow ? color.new(color.green, 90) : color.new(color.red, 90), title="EMA Trend Cloud")
+
+// SuperTrend Plot
+stColor = isBullTrend ? color.new(#00e676, 0) : color.new(#ff1744, 0)
+plot(supertrend, title="SuperTrend", color=stColor, linewidth=3, style=plot.style_linebr)
+
+// Bar Color based on trend confluence
+barcolor(isBullTrend and emaFast > emaSlow and isMarketTrending ? color.new(color.green, 20) :
+         not isBullTrend and emaFast < emaSlow and isMarketTrending ? color.new(color.red, 20) : color.gray)
+
+// ==============================================================================
+// 4. STRATEGY CONFLUENCE LOGIC
+// ==============================================================================
+longCondition = isBullTrend and (emaFast > emaSlow) and (rsiVal > 52 and rsiVal < 72) and isMarketTrending and not isMiddayChop
+shortCondition = not isBullTrend and (emaFast < emaSlow) and (rsiVal < 48 and rsiVal > 28) and isMarketTrending and not isMiddayChop
+
+// Entry Execution
 if (longCondition and strategy.position_size == 0)
-    strategy.entry("BUY", strategy.long)
-    strategy.exit("Long Exit", "BUY", loss=slPoints * 75, profit=tgtPoints * 75)
+    strategy.entry("BUY_LONG", strategy.long, comment="BUY 1 Lot")
+    strategy.exit("Exit_Long", "BUY_LONG", loss=slPoints * 75, profit=tgtPoints * 75, comment_loss="SL HIT", comment_profit="TARGET HIT")
 
 if (shortCondition and strategy.position_size == 0)
-    strategy.entry("SELL", strategy.short)
-    strategy.exit("Short Exit", "SELL", loss=slPoints * 75, profit=tgtPoints * 75)
+    strategy.entry("SELL_SHORT", strategy.short, comment="SELL 1 Lot")
+    strategy.exit("Exit_Short", "SELL_SHORT", loss=slPoints * 75, profit=tgtPoints * 75, comment_loss="SL HIT", comment_profit="TARGET HIT")
+
+// Mandatory EOD 3:15 PM Square-off
+if (isSquareOff and strategy.position_size != 0)
+    strategy.close_all(comment="3:15 PM EOD CLOSE")
+
+// ==============================================================================
+// 5. TRADINGVIEW WEBHOOK ALERTS (JSON Payload for Kite / Webhook Automation)
+// ==============================================================================
+alertcondition(longCondition and strategy.position_size == 0, 
+               title="⚡ AI Long Signal", 
+               message='{"action": "BUY", "symbol": "{{ticker}}", "price": {{close}}, "strategy": "SuperTrend_EMA_Confluence", "sl": {{close}} - 25, "target": {{close}} + 55}')
+
+alertcondition(shortCondition and strategy.position_size == 0, 
+               title="⚡ AI Short Signal", 
+               message='{"action": "SELL", "symbol": "{{ticker}}", "price": {{close}}, "strategy": "SuperTrend_EMA_Confluence", "sl": {{close}} + 25, "target": {{close}} - 55}')
+
+alertcondition(isSquareOff and strategy.position_size != 0, 
+               title="⚠️ 3:15 PM Mandatory Square-off", 
+               message='{"action": "SQUARE_OFF", "symbol": "{{ticker}}", "reason": "EOD_MANDATORY_CLOSE"}')
+
+// ==============================================================================
+// 6. REAL-TIME INSTITUTIONAL HUD (ON-SCREEN STATUS TABLE)
+// ==============================================================================
+var table hud = table.new(position.top_right, 2, 8, bgcolor=color.new(#131722, 10), border_color=color.gray, border_width=1)
+
+if barstate.islast
+    table.cell(hud, 0, 0, "Trading Online AI", bgcolor=color.new(#2962ff, 20), text_color=color.white, text_size=size.small)
+    table.cell(hud, 1, 0, "STATUS", bgcolor=color.new(#2962ff, 20), text_color=color.white, text_size=size.small)
+
+    table.cell(hud, 0, 1, "SuperTrend (10,3)", text_color=color.white, text_size=size.tiny)
+    table.cell(hud, 1, 1, isBullTrend ? "BULLISH" : "BEARISH", bgcolor=isBullTrend ? color.new(color.green, 30) : color.new(color.red, 30), text_color=color.white, text_size=size.tiny)
+
+    table.cell(hud, 0, 2, "EMA Ribbon (9/21)", text_color=color.white, text_size=size.tiny)
+    table.cell(hud, 1, 2, emaFast > emaSlow ? "BULL CROSS" : "BEAR CROSS", bgcolor=emaFast > emaSlow ? color.new(color.green, 50) : color.new(color.red, 50), text_color=color.white, text_size=size.tiny)
+
+    table.cell(hud, 0, 3, "RSI (14)", text_color=color.white, text_size=size.tiny)
+    table.cell(hud, 1, 3, str.tostring(rsiVal, "#.#"), text_color=rsiVal > 50 ? color.green : color.red, text_size=size.tiny)
+
+    table.cell(hud, 0, 4, "ADX Strength", text_color=color.white, text_size=size.tiny)
+    table.cell(hud, 1, 4, str.tostring(adxVal, "#.#") + (adxVal >= adxThreshold ? " (STRONG)" : " (WEAK)"), text_color=adxVal >= adxThreshold ? color.green : color.orange, text_size=size.tiny)
+
+    table.cell(hud, 0, 5, "Choppiness Index", text_color=color.white, text_size=size.tiny)
+    table.cell(hud, 1, 5, str.tostring(chopVal, "#.#") + (chopVal >= chopMax ? " (CHOP)" : " (TREND)"), text_color=chopVal >= chopMax ? color.red : color.green, text_size=size.tiny)
+
+    table.cell(hud, 0, 6, "Midday Gate (Chop)", text_color=color.white, text_size=size.tiny)
+    table.cell(hud, 1, 6, isMiddayChop ? "BLOCKED (CHOP)" : "ACTIVE", bgcolor=isMiddayChop ? color.new(color.orange, 40) : color.new(color.green, 60), text_color=color.white, text_size=size.tiny)
+
+    table.cell(hud, 0, 7, "Position Status", text_color=color.white, text_size=size.tiny)
+    posText = strategy.position_size > 0 ? "LONG (" + str.tostring(strategy.position_size) + ")" : strategy.position_size < 0 ? "SHORT (" + str.tostring(strategy.position_size) + ")" : "FLAT"
+    posBg   = strategy.position_size > 0 ? color.new(color.green, 30) : strategy.position_size < 0 ? color.new(color.red, 30) : color.new(color.gray, 60)
+    table.cell(hud, 1, 7, posText, bgcolor=posBg, text_color=color.white, text_size=size.tiny)
