@@ -9,19 +9,25 @@ from config.settings import settings
 
 class RiskManager:
     def __init__(self, max_daily_loss: float = None, max_lots: int = None, square_off_time_str: str = None,
-                 enable_midday_filter: bool = None, midday_start_str: str = None, midday_end_str: str = None):
+                 enable_midday_filter: bool = None, midday_start_str: str = None, midday_end_str: str = None,
+                 is_crypto: bool = False):
         self.max_daily_loss = max_daily_loss or settings.max_daily_loss
         self.max_lots = max_lots or settings.max_lots
         self.stop_loss_pct = settings.stop_loss_pct
         self.target_rr_ratio = settings.target_rr_ratio
+        self.is_crypto = is_crypto
 
         # Parse square-off time (e.g., "15:15")
         t_str = square_off_time_str or settings.mandatory_square_off_time
         hour, minute = map(int, t_str.split(":"))
         self.square_off_time = time(hour=hour, minute=minute)
 
-        # Midday Chop Filter (11:30 - 13:30 IST)
-        self.enable_midday_filter = enable_midday_filter if enable_midday_filter is not None else settings.enable_midday_filter
+        # Midday Chop Filter (11:30 - 13:30 IST) - Disabled by default in Crypto (24/7 global market)
+        if is_crypto:
+            self.enable_midday_filter = False
+        else:
+            self.enable_midday_filter = enable_midday_filter if enable_midday_filter is not None else settings.enable_midday_filter
+        
         m_start_str = midday_start_str or settings.midday_start
         m_s_h, m_s_m = map(int, m_start_str.split(":"))
         self.midday_start = time(hour=m_s_h, minute=m_s_m)
@@ -46,15 +52,16 @@ class RiskManager:
         total_pnl = current_realized_pnl + current_unrealized_pnl
         if total_pnl <= -abs(self.max_daily_loss):
             self.trading_halted = True
-            self.halt_reason = f"CIRCUIT BREAKER: Total daily P&L (₹{total_pnl:.2f}) breached max limit (-₹{self.max_daily_loss:.2f})."
+            currency_symbol = "$" if self.is_crypto else "₹"
+            self.halt_reason = f"CIRCUIT BREAKER: Total daily P&L ({currency_symbol}{total_pnl:.2f}) breached max limit (-{currency_symbol}{self.max_daily_loss:.2f})."
             return False, self.halt_reason
 
         # 3. Check Lot Sizing Rules (1-lot validation rule)
         if requested_lots > self.max_lots:
             return False, f"REJECTED: Requested {requested_lots} lots exceeds max allowed limit ({self.max_lots} lot)."
 
-        # 4. Check Mandatory Square-off Cutoff Time and Midday Chop Protection
-        if not ignore_time_cutoff:
+        # 4. Check Mandatory Square-off Cutoff Time and Midday Chop Protection (Skipped in 24/7 Crypto mode)
+        if not self.is_crypto and not ignore_time_cutoff:
             target_time = check_time or datetime.now().time()
 
             if target_time >= self.square_off_time:

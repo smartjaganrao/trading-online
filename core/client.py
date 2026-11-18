@@ -8,6 +8,7 @@ from datetime import datetime
 import random
 from config.settings import settings
 from core.risk_manager import RiskManager
+from core.forex import ForexEngine
 from execution.journal import calculate_transaction_costs
 
 
@@ -51,6 +52,19 @@ class PaperTradingClient(BaseBrokerClient):
             "NSE:INFY": 1820.0,
             "NSE:TCS": 4120.0,
             "NSE:HDFCBANK": 1780.0,
+            # Forex & Currency Derivatives
+            "CDS:USDINR": 84.4500,
+            "USDINR": 84.4500,
+            "CDS:EURINR": 91.8000,
+            "EURINR": 91.8000,
+            "CDS:GBPINR": 107.5000,
+            "GBPINR": 107.5000,
+            "CDS:JPYINR": 56.2000,
+            "JPYINR": 56.2000,
+            "EURUSD": 1.0850,
+            "GBPUSD": 1.2950,
+            "USDJPY": 154.20,
+            "AUDUSD": 0.6540,
         }
 
     def get_profile(self) -> Dict[str, Any]:
@@ -77,15 +91,19 @@ class PaperTradingClient(BaseBrokerClient):
 
     def update_mock_price(self, symbol: str, current_price: float = None) -> float:
         """Slightly fluctuates or sets price for live simulation."""
+        is_fx = ForexEngine.is_forex(symbol)
+        decimals = 4 if is_fx and "JPY" not in symbol else 2
+
         if symbol not in self.simulated_prices:
-            self.simulated_prices[symbol] = 100.0
+            self.simulated_prices[symbol] = 84.4500 if is_fx else 100.0
 
         if current_price is not None:
             self.simulated_prices[symbol] = current_price
         else:
-            # Random walk jitter (-0.15% to +0.15%)
-            delta_pct = random.uniform(-0.0015, 0.0015)
-            self.simulated_prices[symbol] = round(self.simulated_prices[symbol] * (1 + delta_pct), 2)
+            # Jitter: tighter for FX (0.02% to 0.05%) vs Equity (0.15%)
+            jitter_max = 0.0003 if is_fx else 0.0015
+            delta_pct = random.uniform(-jitter_max, jitter_max)
+            self.simulated_prices[symbol] = round(self.simulated_prices[symbol] * (1 + delta_pct), decimals)
         return self.simulated_prices[symbol]
 
     def get_ltp(self, instruments: List[str]) -> Dict[str, float]:
