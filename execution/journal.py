@@ -47,6 +47,7 @@ def calculate_crypto_transaction_costs(
 
 
 from core.forex import ForexEngine
+from core.commodity import CommodityEngine
 
 def calculate_transaction_costs(
     symbol: str,
@@ -59,6 +60,13 @@ def calculate_transaction_costs(
     """
     Computes statutory and execution charges:
     - Equity/F&O: Brokerage, STT (0.025% / 0.1%), Exchange (0.00325%), SEBI (₹10/cr), Stamp (0.003%), GST (18%).
+    - Commodities (MCX):
+        - Brokerage: ₹20 flat or 0.03%
+        - CTT (Commodity Transaction Tax): 0.05% on Sell side for non-agri futures
+        - Exchange Turnover Charges (MCX): 0.0021%
+        - SEBI Charges: 0.0001% (₹10/crore)
+        - Stamp Duty: 0.002% on Buy side
+        - GST: 18% on (Brokerage + Exchange + SEBI)
     - Currency Derivatives (NSE CDS):
         - Brokerage: ₹20 flat or 0.03%
         - STT: ₹0.0 (STT EXEMPT in Indian Currency Futures!)
@@ -69,6 +77,7 @@ def calculate_transaction_costs(
         - Slippage: 0.0025 tick drag (~0.01%)
     """
     is_fx = ForexEngine.is_forex(symbol)
+    is_comm = CommodityEngine.is_commodity(symbol)
 
     entry_turnover = entry_price * quantity
     exit_turnover = exit_price * quantity
@@ -89,9 +98,17 @@ def calculate_transaction_costs(
         sebi_charges = round(turnover * 0.000001, 2)       # ₹10/crore
         stamp_duty = round(buy_turnover * 0.000001, 2)     # 0.0001% on Buy
         gst = round((total_brokerage + exchange_charges + sebi_charges) * 0.18, 2)
-        # Tight slippage for currencies (0.0025 tick)
         fx_slippage = min(0.0001, slippage_pct)
         slippage_cost = round(turnover * fx_slippage, 2)
+    elif is_comm:
+        # Commodities (MCX) - CTT 0.05% on Sell side
+        stt = round(sell_turnover * 0.0005, 2)            # CTT replaces STT
+        exchange_charges = round(turnover * 0.000021, 2)   # 0.0021% MCX turnover fee
+        sebi_charges = round(turnover * 0.000001, 2)       # ₹10/crore
+        stamp_duty = round(buy_turnover * 0.00002, 2)      # 0.002% on Buy
+        gst = round((total_brokerage + exchange_charges + sebi_charges) * 0.18, 2)
+        comm_slippage = min(0.0003, slippage_pct)
+        slippage_cost = round(turnover * comm_slippage, 2)
     else:
         # STT: 0.025% on sell side (for equity intraday); if options 0.1% on sell premium
         stt_rate = 0.001 if "NIFTY" in symbol and quantity >= 50 else 0.00025

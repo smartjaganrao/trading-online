@@ -13,6 +13,7 @@ from rich.panel import Panel
 from config.settings import settings
 from core.risk_manager import RiskManager
 from core.client import PaperTradingClient
+from core.forex import ForexEngine
 from strategies.supertrend_ema import SuperTrendEMAStrategy
 from execution.journal import TradeJournal, calculate_transaction_costs
 
@@ -27,7 +28,33 @@ def generate_intraday_day_data(symbol: str = "NSE:NIFTY 50", seed: int = 42) -> 
     np.random.seed(seed)
     start_time = datetime.now().replace(hour=9, minute=15, second=0, microsecond=0)
     
-    base_price = 24350.0 if "NIFTY" in symbol else 1280.0
+    is_fx = ForexEngine.is_forex(symbol)
+    if is_fx:
+        if "JPY" in symbol.upper():
+            base_price = 154.20
+            scale = 0.08
+            decimals = 2
+        elif "EURUSD" in symbol.upper():
+            base_price = 1.0850
+            scale = 0.0003
+            decimals = 4
+        elif "GBP" in symbol.upper():
+            base_price = 107.50 if "INR" in symbol.upper() else 1.2950
+            scale = 0.02 if "INR" in symbol.upper() else 0.0004
+            decimals = 4
+        else: # USDINR default
+            base_price = 84.45
+            scale = 0.012
+            decimals = 4
+    elif "NIFTY" in symbol:
+        base_price = 24350.0
+        scale = 7.0
+        decimals = 2
+    else:
+        base_price = 1280.0
+        scale = 1.5
+        decimals = 2
+
     records = []
     current_price = base_price
 
@@ -41,26 +68,26 @@ def generate_intraday_day_data(symbol: str = "NSE:NIFTY 50", seed: int = 42) -> 
         
         if i < 15:
             # Bullish morning gap & rally
-            step = float(np.random.normal(3.5, 9.0))
+            step = float(np.random.normal(0.4 * scale, 1.1 * scale))
         elif i < 45:
             # Midday choppy pullback
-            step = float(np.random.normal(-1.2, 7.5))
+            step = float(np.random.normal(-0.15 * scale, 0.9 * scale))
         else:
             # Afternoon expansion
-            step = float(np.random.normal(4.0, 8.5))
+            step = float(np.random.normal(0.5 * scale, 1.1 * scale))
 
         open_p = current_price
         close_p = open_p + step
-        high_p = max(open_p, close_p) + abs(float(np.random.normal(2.0, 4.0)))
-        low_p = min(open_p, close_p) - abs(float(np.random.normal(2.0, 4.0)))
+        high_p = max(open_p, close_p) + abs(float(np.random.normal(0.25 * scale, 0.4 * scale)))
+        low_p = min(open_p, close_p) - abs(float(np.random.normal(0.25 * scale, 0.4 * scale)))
         vol = int(np.random.uniform(70000, 250000))
 
         records.append({
             "timestamp": candle_time,
-            "open": round(open_p, 2),
-            "high": round(high_p, 2),
-            "low": round(low_p, 2),
-            "close": round(close_p, 2),
+            "open": round(open_p, decimals),
+            "high": round(high_p, decimals),
+            "low": round(low_p, decimals),
+            "close": round(close_p, decimals),
             "volume": vol
         })
         current_price = close_p
@@ -69,13 +96,15 @@ def generate_intraday_day_data(symbol: str = "NSE:NIFTY 50", seed: int = 42) -> 
 
 
 def run_full_day_session(symbol: str = "NSE:NIFTY 50") -> dict:
+    is_fx = ForexEngine.is_forex(symbol)
+    lot_desc = "1 Lot (1,000 units)" if is_fx else ("1 Lot (75 qty)" if "NIFTY" in symbol else "1 Unit")
     console.print(Panel(
         f"[bold cyan]🗓️ SIMULATING FULL INTRADAY SESSION (9:15 AM - 3:15 PM IST)[/bold cyan]\n"
-        f"Symbol: [bold yellow]{symbol}[/bold yellow] | Lot Size: [green]1 Lot (75 qty)[/green] | Strategy: [magenta]SuperTrend + Dual EMA[/magenta]",
+        f"Symbol: [bold yellow]{symbol}[/bold yellow] | Lot Size: [green]{lot_desc}[/green] | Strategy: [magenta]SuperTrend + Dual EMA[/magenta]",
         border_style="cyan"
     ))
 
-    risk_mgr = RiskManager()
+    risk_mgr = RiskManager(is_forex=is_fx)
     client = PaperTradingClient(risk_manager=risk_mgr)
     strategy = SuperTrendEMAStrategy()
     journal = TradeJournal()
@@ -165,6 +194,8 @@ def run_full_day_session(symbol: str = "NSE:NIFTY 50") -> dict:
             action = signal.get("action", "HOLD")
 
             if action in ("BUY", "SELL"):
+                is_fx = ForexEngine.is_forex(symbol)
+                qty = 1000 if is_fx else (75 if "NIFTY" in symbol else 1)
                 sl, tgt = risk_mgr.calculate_levels(current_price, action)
                 order_id = f"PAPER_{np.random.randint(100000, 999999)}"
                 active_position = {
@@ -172,7 +203,7 @@ def run_full_day_session(symbol: str = "NSE:NIFTY 50") -> dict:
                     "entry_time": candle_time,
                     "side": action,
                     "entry_price": current_price,
-                    "quantity": 75,
+                    "quantity": qty,
                     "stop_loss": sl,
                     "target": tgt
                 }
@@ -181,7 +212,7 @@ def run_full_day_session(symbol: str = "NSE:NIFTY 50") -> dict:
                     "order_id": order_id,
                     "symbol": symbol,
                     "side": action,
-                    "quantity": 75,
+                    "quantity": qty,
                     "fill_price": current_price,
                     "stop_loss": sl,
                     "target": tgt,

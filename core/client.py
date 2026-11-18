@@ -9,6 +9,7 @@ import random
 from config.settings import settings
 from core.risk_manager import RiskManager
 from core.forex import ForexEngine
+from core.commodity import CommodityEngine
 from execution.journal import calculate_transaction_costs
 
 
@@ -65,6 +66,24 @@ class PaperTradingClient(BaseBrokerClient):
             "GBPUSD": 1.2950,
             "USDJPY": 154.20,
             "AUDUSD": 0.6540,
+            # MCX Commodities & Energy
+            "MCX:CRUDEOIL": 7962.0,
+            "MCX:CRUDEOIL26NOVFUT": 7962.0,
+            "MCX:CRUDEOILM": 7962.0,
+            "CRUDEOIL": 7962.0,
+            "MCX:NATURALGAS": 305.7,
+            "MCX:NATURALGAS26NOVFUT": 305.7,
+            "MCX:NATGASMINI": 305.7,
+            "NATURALGAS": 305.7,
+            "MCX:GOLD": 78500.0,
+            "MCX:GOLDM": 78500.0,
+            "GOLD": 78500.0,
+            "MCX:SILVER": 98500.0,
+            "MCX:SILVERM": 98500.0,
+            "MCX:SILVERMIC": 98500.0,
+            "SILVER": 98500.0,
+            "MCX:COPPER": 845.0,
+            "COPPER": 845.0,
         }
 
     def get_profile(self) -> Dict[str, Any]:
@@ -180,6 +199,8 @@ class PaperTradingClient(BaseBrokerClient):
         # 3. New Entry
         stop_loss, target = self.risk_manager.calculate_levels(fill_price, transaction_type)
         is_fx = ForexEngine.is_forex(symbol)
+        is_comm = CommodityEngine.is_commodity(symbol)
+
         if is_fx:
             specs = ForexEngine.get_specs(symbol)
             decimals = specs.get("decimals", 4) if specs else 4
@@ -188,6 +209,12 @@ class PaperTradingClient(BaseBrokerClient):
             # Currency derivatives margin on NSE CDS (~₹2,200 to ₹3,500 per lot)
             base_margin = specs.get("margin_approx_inr", 2500.0) if specs else 2500.0
             lots = max(1, quantity // 1000 if quantity >= 1000 else 1)
+            margin_required = base_margin * lots
+        elif is_comm:
+            specs = CommodityEngine.get_specs(symbol)
+            lot_size = CommodityEngine.get_lot_size(symbol)
+            base_margin = specs.get("margin_approx_inr", 20000.0) if specs else 20000.0
+            lots = max(1, quantity // lot_size if quantity >= lot_size else 1)
             margin_required = base_margin * lots
         elif "NIFTY" in symbol and quantity == 75:
             # Simulated 1 lot ATM option premium (~₹150/point)

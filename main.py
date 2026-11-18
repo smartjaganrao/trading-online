@@ -16,6 +16,8 @@ from config.settings import settings
 from core.risk_manager import RiskManager
 from core.client import PaperTradingClient, KiteLiveClient
 from core.auth import KiteAuthManager
+from core.forex import ForexEngine, CURRENCY_SPECS
+from core.commodity import CommodityEngine, COMMODITY_SPECS
 from strategies.supertrend_ema import SuperTrendEMAStrategy
 from execution.journal import TradeJournal
 
@@ -60,6 +62,12 @@ def render_dashboard(client, strategy, symbol: str, current_ltp: float, last_sig
     t_pos.add_column("Target", justify="right", style="green")
     t_pos.add_column("Unrealized P&L", justify="right")
 
+    def fmt_price(sym: str, val: float) -> str:
+        if ForexEngine.is_forex(sym):
+            pfx = "$" if "INR" not in sym.upper() else "₹"
+            return f"{pfx}{ForexEngine.format_price(sym, val)}"
+        return f"₹{val:,.2f}"
+
     if not positions:
         t_pos.add_row("-", "-", "-", "-", "-", "-", "-", "[dim]No open positions[/dim]")
     else:
@@ -67,15 +75,17 @@ def render_dashboard(client, strategy, symbol: str, current_ltp: float, last_sig
             pnl = p.get("unrealized_pnl", 0.0)
             p_style = "green" if pnl >= 0 else "red"
             side_style = "bold green" if p["side"] == "BUY" else "bold red"
+            sym = p["symbol"]
+            pfx = "$" if (ForexEngine.is_forex(sym) and "INR" not in sym.upper()) else "₹"
             t_pos.add_row(
-                p["symbol"],
+                sym,
                 f"[{side_style}]{p['side']}[/{side_style}]",
                 str(p["quantity"]),
-                f"₹{p['entry_price']:,.2f}",
-                f"₹{p['current_price']:,.2f}",
-                f"₹{p.get('stop_loss', 0.0):,.2f}",
-                f"₹{p.get('target', 0.0):,.2f}",
-                f"[{p_style}]₹{pnl:+,.2f} ({p.get('pnl_pct', 0.0):+.2f}%)[/{p_style}]"
+                fmt_price(sym, p['entry_price']),
+                fmt_price(sym, p['current_price']),
+                fmt_price(sym, p.get('stop_loss', 0.0)),
+                fmt_price(sym, p.get('target', 0.0)),
+                f"[{p_style}]{pfx}{pnl:+,.2f} ({p.get('pnl_pct', 0.0):+.2f}%)[/{p_style}]"
             )
 
     # Signal status
@@ -87,7 +97,7 @@ def render_dashboard(client, strategy, symbol: str, current_ltp: float, last_sig
     signal_line = (
         f"[bold]Latest Signal on {symbol}:[/bold] [{act_color}]{action}[/{act_color}] | "
         f"Regime: [{regime_color}]{regime}[/{regime_color}] (ADX: {metrics.get('adx', 'N/A')}, CHOP: {metrics.get('chop', 'N/A')}) | "
-        f"LTP: ₹{current_ltp:,.2f} | "
+        f"LTP: {fmt_price(symbol, current_ltp)} | "
         f"RSI: {metrics.get('rsi', 'N/A')} | "
         f"SuperTrend: {metrics.get('supertrend', 'N/A')}\n"
         f"[dim]Reason: {last_signal.get('reason', 'N/A')}[/dim]"
@@ -103,29 +113,55 @@ def render_dashboard(client, strategy, symbol: str, current_ltp: float, last_sig
     return Panel(
         table_group,
         title=f"⚡ TRADING ONLINE - {symbol} ⚡",
-        subtitle=f"Signal: {action} @ ₹{current_ltp:,.2f} | Risk Limit: ₹{risk_manager.max_daily_loss:,.2f}",
+        subtitle=f"Signal: {action} @ {fmt_price(symbol, current_ltp)} | Risk Limit: ₹{risk_manager.max_daily_loss:,.2f}",
         border_style="bright_blue",
     )
 
 
 def generate_mock_candle_history(symbol: str, count: int = 50) -> pd.DataFrame:
     """Generates synthetic initial OHLCV candles for strategy warm-up."""
-    base_price = 24300.0 if "NIFTY" in symbol else 1500.0
+    is_fx = ForexEngine.is_forex(symbol)
+    if is_fx:
+        if "JPY" in symbol.upper():
+            base_price = 154.20
+            scale = 0.08
+            decimals = 2
+        elif "EURUSD" in symbol.upper():
+            base_price = 1.0850
+            scale = 0.0003
+            decimals = 4
+        elif "GBP" in symbol.upper():
+            base_price = 107.50 if "INR" in symbol.upper() else 1.2950
+            scale = 0.02 if "INR" in symbol.upper() else 0.0004
+            decimals = 4
+        else:
+            base_price = 84.45
+            scale = 0.012
+            decimals = 4
+    elif "NIFTY" in symbol:
+        base_price = 24300.0
+        scale = 15.0
+        decimals = 2
+    else:
+        base_price = 1500.0
+        scale = 2.0
+        decimals = 2
+
     records = []
     price = base_price
     for i in range(count):
-        change = float(np.random.normal(0, 15))
+        change = float(np.random.normal(0, scale))
         o = price
         c = price + change
-        h = max(o, c) + abs(float(np.random.normal(0, 8)))
-        l = min(o, c) - abs(float(np.random.normal(0, 8)))
+        h = max(o, c) + abs(float(np.random.normal(0, scale * 0.5)))
+        l = min(o, c) - abs(float(np.random.normal(0, scale * 0.5)))
         v = int(np.random.uniform(50000, 200000))
         records.append({
             "timestamp": pd.Timestamp.now() - pd.Timedelta(minutes=(count - i) * 5),
-            "open": round(o, 2),
-            "high": round(h, 2),
-            "low": round(l, 2),
-            "close": round(c, 2),
+            "open": round(o, decimals),
+            "high": round(h, decimals),
+            "low": round(l, decimals),
+            "close": round(c, decimals),
             "volume": v,
         })
         price = c
@@ -208,21 +244,36 @@ def run_trading_session(iterations: int = 20, delay_seconds: float = 0.5):
 
             # 5. Check New Entry Signal
             if last_signal["action"] in ("BUY", "SELL") and len(positions) == 0:
+                is_fx = ForexEngine.is_forex(settings.default_symbol)
+                is_comm = CommodityEngine.is_commodity(settings.default_symbol)
+                if is_comm:
+                    trade_qty = CommodityEngine.get_lot_size(settings.default_symbol)
+                elif is_fx:
+                    trade_qty = 1000
+                elif "NIFTY" in settings.default_symbol:
+                    trade_qty = 75
+                else:
+                    trade_qty = 1
+
                 res = client.place_order(
                     symbol=settings.default_symbol,
                     transaction_type=last_signal["action"],
-                    quantity=75,  # 1 Lot of NIFTY
+                    quantity=trade_qty,
                 )
                 if res.get("status") == "FILLED":
                     journal.log_trade(res, mode="PAPER" if settings.paper_trading else "LIVE", reason=last_signal.get("reason", ""))
                     metrics = last_signal.get("metrics", {})
+                    pfx = "$" if (is_fx and "INR" not in settings.default_symbol.upper()) else "₹"
+                    fill_str = f"{pfx}{ForexEngine.format_price(settings.default_symbol, res.get('fill_price'))}" if is_fx else f"₹{res.get('fill_price'):,.2f}"
+                    sl_str = f"{pfx}{ForexEngine.format_price(settings.default_symbol, res.get('stop_loss'))}" if is_fx else f"₹{res.get('stop_loss'):,.2f}"
+                    tgt_str = f"{pfx}{ForexEngine.format_price(settings.default_symbol, res.get('target'))}" if is_fx else f"₹{res.get('target'):,.2f}"
                     why_panel = Panel(
-                        f"[bold green]🚀 ORDER FILLED:[/bold green] {last_signal['action']} 1 Lot {settings.default_symbol} @ ₹{res.get('fill_price'):,.2f}\n"
+                        f"[bold green]🚀 ORDER FILLED:[/bold green] {last_signal['action']} 1 Lot {settings.default_symbol} @ {fill_str}\n"
                         f"[bold cyan]🎯 Why Taken (AI Confluence Diagnosis):[/bold cyan]\n"
-                        f"  1. [bold]Momentum Vector:[/bold] Fast EMA(9) @ ₹{metrics.get('ema_fast', 0):,.1f} {'above' if last_signal['action'] == 'BUY' else 'below'} Slow EMA(21) @ ₹{metrics.get('ema_slow', 0):,.1f}\n"
+                        f"  1. [bold]Momentum Vector:[/bold] Fast EMA(9) @ {pfx}{metrics.get('ema_fast', 0):,.2f} {'above' if last_signal['action'] == 'BUY' else 'below'} Slow EMA(21) @ {pfx}{metrics.get('ema_slow', 0):,.2f}\n"
                         f"  2. [bold]Trend Structural Band:[/bold] SuperTrend (10,3) is [{ 'green' if metrics.get('supertrend') == 'BULLISH' else 'red' }]{metrics.get('supertrend', 'N/A')}[/]\n"
                         f"  3. [bold]Oscillator Validation:[/bold] RSI(14) is {metrics.get('rsi', 0):.1f} ({'Healthy Buying Acceleration' if last_signal['action'] == 'BUY' else 'Healthy Bearish Expansion'})\n"
-                        f"  4. [bold]Risk Invariant:[/bold] Hard Stop-Loss set at ₹{res.get('stop_loss'):,.2f} | Target at ₹{res.get('target'):,.2f} (1:2 Asymmetric R:R)\n"
+                        f"  4. [bold]Risk Invariant:[/bold] Hard Stop-Loss set at {sl_str} | Target at {tgt_str} (1:2 Asymmetric R:R)\n"
                         f"  5. [bold]Primary Rationale:[/bold] {last_signal.get('reason', 'N/A')}",
                         title="💡 AI TRADE EXECUTION RATIONALE",
                         border_style="cyan"
@@ -358,10 +409,19 @@ def run_live_feed(iterations: int = 30, delay_seconds: float = 1.0):
 
         # Check New Entry
         if action in ("BUY", "SELL") and len(positions) == 0:
+            if CommodityEngine.is_commodity(settings.default_symbol):
+                trade_qty = CommodityEngine.get_lot_size(settings.default_symbol)
+            elif ForexEngine.is_forex(settings.default_symbol):
+                trade_qty = 1000
+            elif "NIFTY" in settings.default_symbol:
+                trade_qty = 75
+            else:
+                trade_qty = 1
+
             res = client.place_order(
                 symbol=settings.default_symbol,
                 transaction_type=action,
-                quantity=75,
+                quantity=trade_qty,
             )
             if res.get("status") == "FILLED":
                 journal.log_trade(res, mode="PAPER", reason=signal.get("reason", ""))
@@ -424,9 +484,290 @@ def display_real_market():
         ))
 
 
+def display_crypto_status(exchange_id: str = None, symbol: str = None):
+    """Fetches and displays live cryptocurrency exchange status and prices."""
+    from core.crypto_client import CryptoClient
+    client = CryptoClient(exchange_id=exchange_id)
+    profile = client.get_profile()
+    margins = client.get_margins()
+    check_pairs = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT"]
+    if symbol and symbol not in check_pairs:
+        check_pairs.insert(0, symbol)
+    ltps = client.get_ltp(check_pairs)
+
+    table = Table(title=f"🌐 Cryptocurrency Market Feeds ({profile['exchange']})", expand=True)
+    table.add_column("Pair", style="bold cyan")
+    table.add_column("Last Traded Price", justify="right", style="bold yellow")
+    table.add_column("Status", justify="center", style="green")
+
+    for pair, price in ltps.items():
+        table.add_row(pair, f"${price:,.2f}" if price > 0 else "N/A", "LIVE FEED" if price > 0 else "ERROR")
+
+    console.print(Panel(
+        f"[bold]Exchange:[/bold] {profile['exchange']}\n"
+        f"[bold]Execution Mode:[/bold] {profile['mode']}\n"
+        f"[bold]Testnet Sandbox:[/bold] {'Enabled' if profile['testnet'] else 'Disabled'}\n"
+        f"[bold]API Credentials Configured:[/bold] {'Yes' if profile['has_credentials'] else 'No (Public Market Data Only)'}\n"
+        f"[bold]Available Cash:[/bold] ${margins.get('available_cash', 0.0):,.2f} USDT\n"
+        f"[bold]Used Margin:[/bold] ${margins.get('used_margin', 0.0):,.2f} USDT\n"
+        f"[bold]Portfolio Total:[/bold] ${margins.get('total_portfolio_value', 0.0):,.2f} USDT",
+        title="⚡ Cryptocurrency Broker & Account Status ⚡",
+        border_style="cyan"
+    ))
+    console.print(table)
+
+
+def display_forex_market():
+    """Fetches and displays real-time currency derivatives (NSE CDS) and global Forex market board."""
+    from core.real_market import RealMarketFeed
+    from core.forex import ForexEngine, CURRENCY_SPECS
+
+    console.print(Panel(
+        "[bold green]🌐 FOREX & NSE CURRENCY DERIVATIVES (CDS) COMMAND CENTER[/bold green]\n"
+        "[dim]Institutional currency trading engine: Live Exchange LTP, Global 24/5 Sessions, Pip Value, and AI Confluence.[/dim]",
+        border_style="green"
+    ))
+
+    # 1. Global Forex Sessions Tracker Table
+    t_sessions = Table(title="🕒 Global Forex Trading Sessions & Market Clocks", expand=True)
+    t_sessions.add_column("Session", style="bold")
+    t_sessions.add_column("Region", style="cyan")
+    t_sessions.add_column("IST Trading Hours", justify="center")
+    t_sessions.add_column("Status", justify="center")
+    t_sessions.add_column("Volatility", justify="center")
+    t_sessions.add_column("Primary Currency Pairs", style="dim")
+
+    sessions = ForexEngine.get_global_sessions()
+    for s in sessions:
+        status_str = "[bold green]🟢 ACTIVE[/bold green]" if s["is_active"] else "[dim]🔴 CLOSED[/dim]"
+        t_sessions.add_row(
+            s["name"],
+            s["region"],
+            s["hours_ist"],
+            status_str,
+            s["volatility"],
+            s["key_pairs"]
+        )
+    console.print(t_sessions)
+
+    # 2. NSE Currency Derivatives Segment (CDS) Live Table
+    t_cds = Table(title="🏛️ NSE Currency Derivatives Segment (CDS) — Exchange Traded Futures", expand=True)
+    t_cds.add_column("Pair", style="bold cyan")
+    t_cds.add_column("Ticker", style="dim")
+    t_cds.add_column("Live LTP (₹)", justify="right", style="bold yellow")
+    t_cds.add_column("Change", justify="right")
+    t_cds.add_column("Day High (₹)", justify="right", style="green")
+    t_cds.add_column("Day Low (₹)", justify="right", style="red")
+    t_cds.add_column("Lot Size", justify="right")
+    t_cds.add_column("Pip Size", justify="right")
+    t_cds.add_column("Tick Val / Lot", justify="right", style="cyan")
+    t_cds.add_column("Approx Margin", justify="right", style="magenta")
+    t_cds.add_column("STT Tax", justify="center", style="bold green")
+
+    cds_pairs = ["CDS:USDINR", "CDS:EURINR", "CDS:GBPINR", "CDS:JPYINR"]
+    for sym in cds_pairs:
+        specs = ForexEngine.get_specs(sym) or {}
+        q = RealMarketFeed.get_real_quote(sym)
+        chg = q.get("change_pct", 0.0)
+        c_style = "bold green" if chg >= 0 else "bold red"
+        ltp = q.get("ltp", 0.0)
+        decimals = specs.get("decimals", 4)
+        ltp_str = f"₹{ltp:.{decimals}f}"
+        high_str = f"₹{q.get('high', 0.0):.{decimals}f}"
+        low_str = f"₹{q.get('low', 0.0):.{decimals}f}"
+
+        t_cds.add_row(
+            sym.replace("CDS:", ""),
+            q.get("ticker", "N/A"),
+            ltp_str,
+            f"[{c_style}]{chg:+.2f}%[/{c_style}]",
+            high_str,
+            low_str,
+            f"{specs.get('lot_size', 1000):,} units",
+            f"{specs.get('pip_size', 0.0025)}",
+            f"₹{specs.get('pip_value_inr', 2.50):.2f}",
+            f"₹{specs.get('margin_approx_inr', 2500):,.0f}",
+            "0% (Exempt)"
+        )
+    console.print(t_cds)
+
+    # 3. Global Major Forex Pairs Table
+    t_global = Table(title="🌍 Global Major Forex Pairs (24/5 Live Spot Feed)", expand=True)
+    t_global.add_column("Pair", style="bold cyan")
+    t_global.add_column("Ticker", style="dim")
+    t_global.add_column("Spot Rate", justify="right", style="bold yellow")
+    t_global.add_column("Change", justify="right")
+    t_global.add_column("Day High", justify="right", style="green")
+    t_global.add_column("Day Low", justify="right", style="red")
+    t_global.add_column("Pip Size", justify="right")
+    t_global.add_column("Std Lot Pip Value", justify="right", style="cyan")
+
+    global_pairs = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF"]
+    for sym in global_pairs:
+        specs = ForexEngine.get_specs(sym) or {}
+        q = RealMarketFeed.get_real_quote(sym)
+        chg = q.get("change_pct", 0.0)
+        c_style = "bold green" if chg >= 0 else "bold red"
+        ltp = q.get("ltp", 0.0)
+        decimals = specs.get("decimals", 4)
+        ltp_str = f"{ltp:.{decimals}f}"
+        high_str = f"{q.get('high', 0.0):.{decimals}f}"
+        low_str = f"{q.get('low', 0.0):.{decimals}f}"
+        pip_val = f"${specs.get('pip_value_usd', 10.0):.2f}"
+
+        t_global.add_row(
+            sym,
+            q.get("ticker", "N/A"),
+            ltp_str,
+            f"[{c_style}]{chg:+.2f}%[/{c_style}]",
+            high_str,
+            low_str,
+            f"{specs.get('pip_size', 0.0001)}",
+            pip_val
+        )
+    console.print(t_global)
+
+    # 4. Live Quantitative AI Strategy Diagnostics on Real Exchange Candles for USDINR
+    console.print("\n[bold cyan]🧠 AI Strategy Diagnostics on Real Currency Candles (USDINR & EURUSD):[/bold cyan]")
+    df_usdinr = RealMarketFeed.get_real_historical_candles("CDS:USDINR", interval="5m", period="5d")
+    if not df_usdinr.empty:
+        strategy = SuperTrendEMAStrategy()
+        signal = strategy.generate_signal(df_usdinr)
+        metrics = signal.get("metrics", {})
+        action = signal.get("action", "HOLD")
+        act_color = "green" if action == "BUY" else ("red" if action == "SELL" else "yellow")
+
+        console.print(Panel(
+            f"[bold]Active Pair:[/bold] CDS:USDINR (Genuine 5-Min Exchange Candles)\n"
+            f"[bold]Real Exchange Rate:[/bold] ₹{metrics.get('close', 0.0):.4f}\n"
+            f"[bold]EMA 9 (Fast):[/bold] ₹{metrics.get('ema_fast', 0.0):.4f}  |  [bold]EMA 21 (Slow):[/bold] ₹{metrics.get('ema_slow', 0.0):.4f}\n"
+            f"[bold]RSI (14):[/bold] {metrics.get('rsi', 0.0):.1f}  |  [bold]SuperTrend:[/bold] {metrics.get('supertrend', 'N/A')}\n"
+            f"[bold]Regime Filter:[/bold] {metrics.get('regime', 'SCANNING')} (ADX: {metrics.get('adx', 0.0):.1f}, CHOP: {metrics.get('chop', 0.0):.1f})\n\n"
+            f"[bold text-lg]AI Decision:[/bold text-lg] [{act_color}]{action}[/{act_color}] — {signal.get('reason', 'N/A')}",
+            title="⚡ Live AI Analysis on Real USD/INR Exchange Data ⚡",
+            border_style="bright_blue"
+        ))
+
+    # 5. Regulatory & FEMA / SEBI Framework Overview Panel
+    console.print(Panel(
+        "[bold yellow]🏛️ Regulatory Compliance Framework for Indian Traders (SEBI & RBI Guidelines):[/bold yellow]\n"
+        "• [bold green]LEGAL & REGULATED:[/bold green] Trading Currency Derivatives on SEBI-recognized Indian exchanges (NSE & BSE CDS) in INR pairs (USDINR, EURINR, GBPINR, JPYINR) and approved cross-currency pairs (EURUSD, GBPUSD, USDJPY).\n"
+        "• [bold green]ZERO STT ADVANTAGE:[/bold green] Currency futures trade with 0% Securities Transaction Tax (STT), making statutory transaction costs significantly lower than equity options.\n"
+        "• [bold red]RBI FEMA WARNING:[/bold red] Resident Indians are strictly prohibited under the Foreign Exchange Management Act (FEMA) from remitting funds through LRS to unauthorized offshore forex brokers / CFD apps.\n"
+        "• [bold cyan]ZERODHA KITE CDS SUPPORT:[/bold cyan] Ensure 'Currency Derivatives' segment is activated in your Zerodha Console -> Account -> Segments to trade live contracts.",
+        title="⚖️ Statutory & Compliance Guide",
+        border_style="yellow"
+    ))
+
+
+def display_commodity_market(symbol: str = None):
+    """Fetches and displays real-time MCX commodity intelligence, sessions, and live prices."""
+    from core.real_market import RealMarketFeed
+    from core.commodity import CommodityEngine, COMMODITY_SPECS
+
+    console.print(Panel(
+        "[bold yellow]⚡ MCX COMMODITIES & GLOBAL FUTURES COMMAND CENTER ⚡[/bold yellow]\n"
+        "[dim]Trading hours: 09:00 AM – 11:30 PM / 11:55 PM IST | Peak Institutional Window: 18:30 – 22:30 IST | CTT: 0.05%[/dim]",
+        border_style="yellow"
+    ))
+
+    # 1. Trading Sessions
+    sessions = CommodityEngine.get_commodity_sessions()
+    t_sess = Table(title="🕒 MCX Commodity Session Clocks & Volatility Tracker", expand=True)
+    t_sess.add_column("Session Phase", style="bold cyan")
+    t_sess.add_column("Trading Hours (IST)", justify="center")
+    t_sess.add_column("Current Status", justify="center")
+    t_sess.add_column("Institutional Regime & Liquidity", style="dim")
+
+    for s in sessions:
+        status_str = "[bold green]🟢 ACTIVE NOW[/bold green]" if s["active"] else "[dim]⚪ INACTIVE[/dim]"
+        t_sess.add_row(s["phase"], s["hours"], status_str, f"{s['regime']} ({s['liquidity']})")
+    console.print(t_sess)
+
+    # 2. Major MCX Commodities Table
+    check_syms = [
+        "MCX:CRUDEOIL", "MCX:CRUDEOILM",
+        "MCX:NATURALGAS", "MCX:NATGASMINI",
+        "MCX:GOLD", "MCX:GOLDM",
+        "MCX:SILVER", "MCX:SILVERMIC",
+        "MCX:COPPER"
+    ]
+    if symbol and symbol not in check_syms:
+        check_syms.insert(0, symbol)
+
+    t_quotes = Table(title="📊 Major MCX Commodities & Benchmark Specifications", expand=True)
+    t_quotes.add_column("Symbol", style="bold")
+    t_quotes.add_column("Contract Name", style="cyan")
+    t_quotes.add_column("Lot Size", justify="right")
+    t_quotes.add_column("Benchmark LTP", justify="right", style="bold yellow")
+    t_quotes.add_column("Point Value (₹)", justify="right", style="magenta")
+    t_quotes.add_column("Approx Margin", justify="right", style="green")
+    t_quotes.add_column("Statutory Tax", justify="center", style="blue")
+
+    for sym in check_syms:
+        specs = CommodityEngine.get_specs(sym)
+        if not specs:
+            continue
+        q = RealMarketFeed.get_real_quote(sym)
+        ltp_val = q.get("ltp", 0.0)
+        tick_val = specs.get("tick_value_inr", 1.0)
+        lot_sz = specs.get("lot_size", 1)
+        margin_req = specs.get("margin_approx_inr", 0.0)
+
+        in_inv, _ = CommodityEngine.is_inventory_window(sym)
+        sym_display = f"[bold red]⚠️ {sym}[/bold red]" if in_inv else sym
+
+        t_quotes.add_row(
+            sym_display,
+            specs.get("name", sym),
+            f"{lot_sz} ({specs.get('unit', '')})",
+            f"₹{ltp_val:,.2f}" if ltp_val > 0 else "N/A",
+            f"₹{tick_val:,.1f} / pt",
+            f"₹{margin_req:,.0f}",
+            "0.05% CTT (No STT)"
+        )
+    console.print(t_quotes)
+
+    # 3. Live AI Confluence Strategy Diagnostics on Real Benchmark Candles (Crude Oil & NatGas)
+    console.print("\n[bold cyan]🧠 AI Strategy Diagnostics on Real Commodity Candles (Crude Oil & NatGas):[/bold cyan]")
+    diag_syms = ["MCX:CRUDEOIL", "MCX:NATURALGAS"]
+    for sym in diag_syms:
+        df_candles = RealMarketFeed.get_real_historical_candles(sym, interval="5m", period="5d")
+        if not df_candles.empty:
+            strategy = SuperTrendEMAStrategy()
+            sig = strategy.generate_signal(df_candles)
+            m = sig.get("metrics", {})
+            act = sig.get("action", "HOLD")
+            act_col = "green" if act == "BUY" else ("red" if act == "SELL" else "yellow")
+            console.print(Panel(
+                f"[bold]Instrument:[/bold] {sym} ({COMMODITY_SPECS.get(sym, {}).get('name', '')})\n"
+                f"[bold]Latest Close:[/bold] {m.get('close', 0.0):,.2f}  |  [bold]EMA 9 / 21:[/bold] {m.get('ema_fast', 0.0):,.2f} / {m.get('ema_slow', 0.0):,.2f}\n"
+                f"[bold]SuperTrend:[/bold] {m.get('supertrend', 'N/A')}  |  [bold]RSI(14):[/bold] {m.get('rsi', 0.0):.1f}  |  [bold]ADX:[/bold] {m.get('adx', 0.0):.1f}\n"
+                f"[bold]AI Action:[/bold] [{act_col}]{act}[/{act_col}] — {sig.get('reason', '')}",
+                title=f"⚡ Live AI Diagnostics: {sym}",
+                border_style="cyan"
+            ))
+
+    # 4. Inventory Alert Guidelines
+    console.print(Panel(
+        "[bold yellow]⚠️ High-Impact US Inventory Alerts & Strict Safety Rules:[/bold yellow]\n"
+        " • [bold]Wednesdays (20:00 / 20:30 IST):[/bold] US EIA Crude Oil Inventory Reports\n"
+        " • [bold]Thursdays (20:00 / 20:30 IST):[/bold] US EIA Natural Gas Storage Reports\n"
+        " • [bold]Protocol:[/bold] Never enter within 15 minutes before/after these releases due to severe spread widening & slippage.",
+        title="Institutional Risk Guard",
+        border_style="red"
+    ))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Trading Online - Algorithmic Trading Platform")
     parser.add_argument("--mode", choices=["paper", "live"], default="paper", help="Execution mode")
+    parser.add_argument("--commodity", action="store_true", help="Launch MCX Commodity Trading Command Center & Live Intelligence")
+    parser.add_argument("--forex", action="store_true", help="Launch Forex (Currencies) Command Center & Global Market Clocks")
+    parser.add_argument("--crypto", action="store_true", help="Launch 24/7 Cryptocurrency Algorithmic Trading Engine")
+    parser.add_argument("--exchange", type=str, default=None, help="Crypto exchange: binance, bybit, okx, kraken (default: binance)")
+    parser.add_argument("--crypto-status", action="store_true", help="Display Crypto exchange balance, connection status, and live prices")
+    parser.add_argument("--timeframe", type=str, default=None, help="Candle timeframe (e.g. '1m', '5m', '15m', '1h')")
     parser.add_argument("--login", action="store_true", help="Generate Zerodha Kite Login URL")
     parser.add_argument("--token", type=str, help="Complete login by providing request_token from Kite redirect")
     parser.add_argument("--status", action="store_true", help="Check broker margins and profile")
@@ -446,7 +787,20 @@ def main():
     args = parser.parse_args()
 
     if args.symbol:
-        settings.default_symbol = args.symbol
+        if CommodityEngine.is_commodity(args.symbol):
+            settings.default_symbol = CommodityEngine.normalize_symbol(args.symbol)
+        elif ForexEngine.is_forex(args.symbol):
+            settings.default_symbol = ForexEngine.normalize_forex_symbol(args.symbol)
+        else:
+            settings.default_symbol = args.symbol
+
+    if args.commodity:
+        display_commodity_market(symbol=settings.default_symbol)
+        return
+
+    if args.forex:
+        display_forex_market()
+        return
 
     if args.history:
         display_history()
@@ -508,6 +862,25 @@ def main():
             console.print(f"[bold green]🎉 Authentication Successful! Access Token saved for today's session.[/bold green]")
         except Exception as e:
             console.print(f"[bold red]Login exchange failed:[/bold red] {e}")
+        return
+
+    if args.crypto_status:
+        display_crypto_status(exchange_id=args.exchange, symbol=args.symbol)
+        return
+
+    if args.crypto:
+        from execution.crypto_executor import run_crypto_live_loop
+        crypto_symbol = args.symbol or settings.crypto_default_symbol
+        crypto_exchange = args.exchange or settings.crypto_exchange
+        crypto_timeframe = args.timeframe or settings.crypto_timeframe
+        ticks_to_run = 0 if args.auto else args.ticks
+        run_crypto_live_loop(
+            symbol=crypto_symbol,
+            exchange=crypto_exchange,
+            timeframe=crypto_timeframe,
+            ticks=ticks_to_run,
+            delay=2.0 if args.auto else 1.0,
+        )
         return
 
     if args.status:

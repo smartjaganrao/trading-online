@@ -57,5 +57,24 @@ class Settings(BaseModel):
     crypto_taker_fee: float = Field(default_factory=lambda: float(os.getenv("CRYPTO_TAKER_FEE", "0.0005")))  # 0.05%
     crypto_slippage_pct: float = Field(default_factory=lambda: float(os.getenv("CRYPTO_SLIPPAGE_PCT", "0.0002")))  # 0.02%
 
+    # Forex & Currency Derivatives Settings
+    forex_default_symbol: str = Field(default_factory=lambda: os.getenv("FOREX_DEFAULT_SYMBOL", "CDS:USDINR"))
+    forex_square_off_time: str = Field(default_factory=lambda: os.getenv("FOREX_SQUARE_OFF_TIME", "16:45"))
+
+    def get_square_off_time(self, symbol: str) -> str:
+        from core.commodity import CommodityEngine
+        from core.forex import ForexEngine
+        if CommodityEngine.is_commodity(symbol):
+            return os.getenv("COMMODITY_SQUARE_OFF_TIME", "23:15")
+        if ForexEngine.is_forex(symbol):
+            return os.getenv("FOREX_SQUARE_OFF_TIME", "16:45")
+        return self.mandatory_square_off_time
+
+    def get_midday_window(self, symbol: str) -> tuple[str, str]:
+        from core.commodity import CommodityEngine
+        if CommodityEngine.is_commodity(symbol):
+            return (os.getenv("COMMODITY_MIDDAY_START", "12:30"), os.getenv("COMMODITY_MIDDAY_END", "17:00"))
+        return (self.midday_start, self.midday_end)
+
 
 settings = Settings()

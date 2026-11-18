@@ -9,6 +9,7 @@ import pandas as pd
 import yfinance as yf
 from rich.console import Console
 from core.forex import ForexEngine, CURRENCY_SPECS
+from core.commodity import CommodityEngine, COMMODITY_SPECS
 
 console = Console()
 
@@ -30,6 +31,31 @@ SYMBOL_MAP = {
     "HDFCBANK": "HDFCBANK.NS",
     "NSE:ICICIBANK": "ICICIBANK.NS",
     "NSE:SBIN": "SBIN.NS",
+
+    # MCX Commodities & Global Benchmarks
+    "MCX:CRUDEOIL": "CL=F",
+    "MCX:CRUDEOILM": "CL=F",
+    "CRUDEOIL": "CL=F",
+    "CL=F": "CL=F",
+    "MCX:NATURALGAS": "NG=F",
+    "MCX:NATGASMINI": "NG=F",
+    "NATURALGAS": "NG=F",
+    "NG=F": "NG=F",
+    "MCX:GOLD": "GC=F",
+    "MCX:GOLDM": "GC=F",
+    "GOLD": "GC=F",
+    "GC=F": "GC=F",
+    "MCX:SILVER": "SI=F",
+    "MCX:SILVERM": "SI=F",
+    "MCX:SILVERMIC": "SI=F",
+    "SILVER": "SI=F",
+    "SI=F": "SI=F",
+    "MCX:COPPER": "HG=F",
+    "COPPER": "HG=F",
+    "HG=F": "HG=F",
+    "MCX:ZINC": "ZN=F",
+    "ZINC": "ZN=F",
+    "ZN=F": "ZN=F",
 
     # NSE Currency Derivatives Segment (CDS)
     "CDS:USDINR": "USDINR=X",
@@ -67,9 +93,17 @@ class RealMarketFeed:
         s = symbol.strip()
         if s in SYMBOL_MAP:
             return SYMBOL_MAP[s]
-        norm = ForexEngine.normalize_forex_symbol(s)
-        if norm in CURRENCY_SPECS:
-            return CURRENCY_SPECS[norm]["ticker"]
+        
+        # Check Commodities
+        if CommodityEngine.is_commodity(s):
+            norm_comm = CommodityEngine.normalize_symbol(s)
+            if norm_comm in COMMODITY_SPECS:
+                return COMMODITY_SPECS[norm_comm]["ticker"]
+
+        # Check Forex
+        norm_fx = ForexEngine.normalize_forex_symbol(s)
+        if norm_fx in CURRENCY_SPECS:
+            return CURRENCY_SPECS[norm_fx]["ticker"]
         if s.endswith("=X"):
             return s
         return f"{s.replace('NSE:', '').strip()}.NS"
@@ -79,6 +113,7 @@ class RealMarketFeed:
         """Fetches the actual real last price, change, day high and day low from exchange."""
         ticker_str = cls.to_ticker(symbol)
         is_fx = ForexEngine.is_forex(symbol) or ticker_str.endswith("=X")
+        is_comm = CommodityEngine.is_commodity(symbol) or ticker_str in ("CL=F", "NG=F", "GC=F", "SI=F", "HG=F", "ZN=F")
         decimals = 4 if is_fx and "JPY" not in symbol else (2 if not is_fx else 2)
 
         try:
@@ -99,6 +134,7 @@ class RealMarketFeed:
                     "symbol": symbol,
                     "ticker": ticker_str,
                     "is_forex": is_fx,
+                    "is_commodity": is_comm,
                     "ltp": round(ltp, decimals),
                     "open": round(float(latest["Open"]), decimals),
                     "high": round(float(hist["High"].max()), decimals),
@@ -111,8 +147,8 @@ class RealMarketFeed:
         except Exception as e:
             console.print(f"[red]Error fetching real quote for {symbol}: {e}[/red]")
 
-        default_ltp = 84.4500 if is_fx else 25227.95
-        return {"symbol": symbol, "ticker": ticker_str, "is_forex": is_fx, "ltp": default_ltp, "change": 0.0, "change_pct": 0.0}
+        default_ltp = 7962.0 if is_comm else (84.4500 if is_fx else 25227.95)
+        return {"symbol": symbol, "ticker": ticker_str, "is_forex": is_fx, "is_commodity": is_comm, "ltp": default_ltp, "change": 0.0, "change_pct": 0.0}
 
     @classmethod
     def get_real_historical_candles(cls, symbol: str, interval: str = "5m", period: str = "5d") -> pd.DataFrame:

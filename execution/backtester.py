@@ -11,13 +11,46 @@ from rich.panel import Panel
 
 from strategies.supertrend_ema import SuperTrendEMAStrategy
 
+from core.forex import ForexEngine
+
 console = Console()
 
 
 def generate_extended_historical_data(symbol: str = "NSE:NIFTY 50", num_candles: int = 500, seed: int = 101) -> pd.DataFrame:
     """Generates a realistic multi-regime sequence of 500 candles (trending bull, bear breakdown, sideways chop)."""
     np.random.seed(seed)
-    base_price = 24000.0
+    is_fx = ForexEngine.is_forex(symbol)
+
+    if is_fx:
+        if "JPY" in symbol.upper():
+            base_price = 154.20
+            scale = 0.08
+            decimals = 2
+        elif "EURUSD" in symbol.upper():
+            base_price = 1.0850
+            scale = 0.0003
+            decimals = 4
+        elif "GBP" in symbol.upper():
+            base_price = 107.50 if "INR" in symbol.upper() else 1.2950
+            scale = 0.02 if "INR" in symbol.upper() else 0.0004
+            decimals = 4
+        else: # USDINR default
+            base_price = 84.45
+            scale = 0.012
+            decimals = 4
+    elif "BANKNIFTY" in symbol.upper():
+        base_price = 51200.0
+        scale = 12.0
+        decimals = 2
+    elif "NIFTY" in symbol.upper():
+        base_price = 24000.0
+        scale = 6.0
+        decimals = 2
+    else:
+        base_price = 1500.0
+        scale = 1.5
+        decimals = 2
+
     records = []
     price = base_price
     
@@ -28,26 +61,26 @@ def generate_extended_historical_data(symbol: str = "NSE:NIFTY 50", num_candles:
         # Phase 3 (300-420): Sharp Pullback / Correction
         # Phase 4 (420-500): Trend Reversal & Recovery
         if i < 150:
-            step = float(np.random.normal(1.8, 6.0))
+            step = float(np.random.normal(0.3 * scale, 1.0 * scale))
         elif i < 300:
-            step = float(np.random.normal(-0.2, 8.5))
+            step = float(np.random.normal(-0.03 * scale, 1.4 * scale))
         elif i < 420:
-            step = float(np.random.normal(-2.2, 7.0))
+            step = float(np.random.normal(-0.35 * scale, 1.1 * scale))
         else:
-            step = float(np.random.normal(2.5, 6.5))
+            step = float(np.random.normal(0.4 * scale, 1.0 * scale))
 
         o = price
         c = o + step
-        h = max(o, c) + abs(float(np.random.normal(2.0, 3.5)))
-        l = min(o, c) - abs(float(np.random.normal(2.0, 3.5)))
+        h = max(o, c) + abs(float(np.random.normal(0.3 * scale, 0.5 * scale)))
+        l = min(o, c) - abs(float(np.random.normal(0.3 * scale, 0.5 * scale)))
         v = int(np.random.uniform(50000, 250000))
 
         records.append({
             "timestamp": pd.Timestamp.now() - pd.Timedelta(minutes=(num_candles - i) * 5),
-            "open": round(o, 2),
-            "high": round(h, 2),
-            "low": round(l, 2),
-            "close": round(c, 2),
+            "open": round(o, decimals),
+            "high": round(h, decimals),
+            "low": round(l, decimals),
+            "close": round(c, decimals),
             "volume": v,
         })
         price = c
@@ -75,6 +108,10 @@ def run_strategy_backtest(symbol: str = "NSE:NIFTY 50", num_candles: int = 500, 
     # Pre-calculate indicators
     df_ind = strategy.calculate_indicators(df)
 
+    is_fx = ForexEngine.is_forex(symbol)
+    decimals = 4 if is_fx and "JPY" not in symbol else 2
+
+    # Relative SL and trail steps (0.15% SL, 0.35% Target, trailing after 0.10% profit)
     for i in range(25, len(df_ind)):
         current_candle = df_ind.iloc[i]
         price = current_candle["close"]
@@ -87,15 +124,18 @@ def run_strategy_backtest(symbol: str = "NSE:NIFTY 50", num_candles: int = 500, 
             tgt = active_position["tgt"]
             qty = active_position["qty"]
 
-            # Trail Stop Loss when in profit > +15 points
-            if side == "BUY" and (price - entry_p) > 15.0:
-                new_sl = round(price - 12.0, 2)
+            profit_trail_threshold = entry_p * 0.0010
+            trail_buffer = entry_p * 0.0006
+
+            # Trail Stop Loss when in profit
+            if side == "BUY" and (price - entry_p) > profit_trail_threshold:
+                new_sl = round(price - trail_buffer, decimals)
                 if new_sl > sl:
                     sl = new_sl
                     active_position["sl"] = sl
 
-            elif side == "SELL" and (entry_p - price) > 15.0:
-                new_sl = round(price + 12.0, 2)
+            elif side == "SELL" and (entry_p - price) > profit_trail_threshold:
+                new_sl = round(price + trail_buffer, decimals)
                 if new_sl < sl:
                     sl = new_sl
                     active_position["sl"] = sl
@@ -130,14 +170,20 @@ def run_strategy_backtest(symbol: str = "NSE:NIFTY 50", num_candles: int = 500, 
             action = signal.get("action", "HOLD")
 
             if action in ("BUY", "SELL"):
-                # 1 Lot of NIFTY = 75 Qty
-                qty = 75
-                # Institutional Intraday SL = 25 points (~0.1%), Target = 55 points (1:2.2 R:R)
-                sl_distance = 25.0
-                tgt_distance = 55.0
+                # Adaptive quantity: 1000 for CDS Forex, 75 for NIFTY, 1 for Equity
+                if is_fx:
+                    qty = 1000
+                elif "NIFTY" in symbol:
+                    qty = 75
+                else:
+                    qty = 1
 
-                sl = round(price - sl_distance if action == "BUY" else price + sl_distance, 2)
-                tgt = round(price + tgt_distance if action == "BUY" else price - tgt_distance, 2)
+                # Institutional Intraday SL = 0.15%, Target = 0.35% (1:2.33 R:R)
+                sl_distance = price * 0.0015
+                tgt_distance = price * 0.0035
+
+                sl = round(price - sl_distance if action == "BUY" else price + sl_distance, decimals)
+                tgt = round(price + tgt_distance if action == "BUY" else price - tgt_distance, decimals)
 
                 active_position = {
                     "entry_idx": i,

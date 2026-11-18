@@ -139,6 +139,89 @@ Analyze today's trades, calculate net friction costs, extract lessons, and updat
 uv run python main.py --learn
 ```
 
+### 8. 🌐 Cryptocurrency Algorithmic Trading (24/7 Engine)
+Launch institutional algorithmic trading across global and Indian crypto exchanges (**Binance, Bybit, OKX, Kraken, CoinDCX, Delta Exchange**) powered by `ccxt`:
+
+```bash
+# Check crypto exchange status, wallet balance, and live prices (BTC, ETH, SOL, BNB)
+uv run python main.py --crypto-status
+
+# Run live strategy execution & terminal dashboard on BTC/USDT (5-min candles)
+uv run python main.py --crypto --symbol BTC/USDT
+
+# Run on Ethereum or Solana with customized exchange and timeframe
+uv run python main.py --crypto --symbol ETH/USDT --exchange bybit --timeframe 15m
+
+# Run autonomous 24/7 continuous trading loop
+uv run python main.py --crypto --auto
+```
+
+### 11. 🌐 Forex (Currencies) Command Center & Global Market Clocks
+
+Trade NSE Currency Derivatives Segment (CDS) and track Global 24/5 FX Majors with pip-level precision and statutory 0% STT advantage:
+
+```bash
+# Launch the Forex Command Center, Global Clocks, and live exchange diagnostics
+uv run python main.py --forex
+
+# Run real-time paper trading session on USD/INR
+uv run python main.py --symbol USDINR --ticks 10
+
+# Run 500-candle quantitative backtest on USD/INR
+uv run python main.py --symbol USDINR --backtest
+
+# Run full-day intraday session simulation on USD/INR
+uv run python main.py --symbol USDINR --day
+```
+
+#### 🏛️ Currency Contract Specifications:
+| Pair | Segment | Contract Lot Size | Tick Size | Tick Value (₹) | Approx Margin | STT Tax |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **USD/INR** | NSE CDS | 1,000 USD | ₹0.0025 | ₹2.50 / lot | ~₹2,200 | **0% (Exempt)** |
+| **EUR/INR** | NSE CDS | 1,000 EUR | ₹0.0025 | ₹2.50 / lot | ~₹2,800 | **0% (Exempt)** |
+| **GBP/INR** | NSE CDS | 1,000 GBP | ₹0.0025 | ₹2.50 / lot | ~₹3,400 | **0% (Exempt)** |
+| **JPY/INR** | NSE CDS | 1,000 JPY (per 100) | ₹0.0025 | ₹2.50 / lot | ~₹2,500 | **0% (Exempt)** |
+| **EUR/USD** | Global FX | 100,000 EUR | 0.00001 | $10.00 / pip | 24/5 Global | Spot Feed |
+| **GBP/USD** | Global FX | 100,000 GBP | 0.00001 | $10.00 / pip | 24/5 Global | Spot Feed |
+
+> [!NOTE]
+> **FEMA & SEBI Compliance**: Trading Currency Derivatives on SEBI-recognized Indian exchanges (NSE & BSE CDS) is fully legal and authorized for Indian residents. Trading on unauthorized offshore forex CFD apps is restricted by RBI. Zero STT on currency futures provides superior statutory efficiency over index options.
+
+---
+
+### 12. ⚡ MCX Commodities Command Center & Global Futures
+
+Trade high-volume energy, precious metals, and base metals on the Multi Commodity Exchange of India (MCX) during active US market hours (09:00 AM – 11:30 PM / 11:55 PM IST):
+
+```bash
+# Launch the MCX Commodity Intelligence Dashboard and active session clocks
+uv run python main.py --commodity
+
+# Run real-time paper trading on Crude Oil Mini
+uv run python main.py --symbol MCX:CRUDEOILM --ticks 10
+
+# Run 500-candle quantitative backtest on Crude Oil
+uv run python main.py --symbol MCX:CRUDEOIL --backtest
+
+# Run full-day session simulation on Natural Gas
+uv run python main.py --symbol MCX:NATURALGAS --day
+```
+
+#### 🏛️ MCX Contract Specifications:
+| Commodity | Symbol | Lot Size | Tick Size | Point Value (₹) | Approx Margin | Statutory Tax |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Crude Oil** | `MCX:CRUDEOIL` | 100 Barrels | ₹1.0 | ₹100 / pt | ~₹1,80,000 | 0.05% CTT |
+| **Crude Oil Mini** | `MCX:CRUDEOILM` | 10 Barrels | ₹1.0 | ₹10 / pt | ~₹19,000 | 0.05% CTT |
+| **Natural Gas** | `MCX:NATURALGAS` | 1250 mmBtu | ₹0.10 | ₹125 / pt | ~₹1,35,000 | 0.05% CTT |
+| **Nat Gas Mini** | `MCX:NATGASMINI` | 250 mmBtu | ₹0.10 | ₹25 / pt | ~₹27,000 | 0.05% CTT |
+| **Gold** | `MCX:GOLD` | 100g quote (1kg) | ₹1.0 | ₹10 / pt | ~₹7,50,000 | 0.05% CTT |
+| **Gold Mini** | `MCX:GOLDM` | 10g quote (100g) | ₹1.0 | ₹1.0 / pt | ~₹75,000 | 0.05% CTT |
+| **Silver Micro** | `MCX:SILVERMIC` | 1 Kg | ₹1.0 | ₹1.0 / pt | ~₹13,000 | 0.05% CTT |
+| **Copper** | `MCX:COPPER` | 2500 Kg | ₹0.05 | ₹125 / pt | ~₹2,10,000 | 0.05% CTT |
+
+> [!TIP]
+> **US Inventory Protocol**: Never initiate entries within 15 minutes of US EIA Crude Oil Inventory (Wednesdays 8:00/8:30 PM IST) or Natural Gas Storage (Thursdays 8:00/8:30 PM IST) reports.
+
 ---
 
 ## 🔐 Connecting Zerodha Kite (Live Trading)
