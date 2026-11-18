@@ -43,5 +43,19 @@ class Settings(BaseModel):
     default_symbol: str = Field(default_factory=lambda: os.getenv("DEFAULT_SYMBOL", "NSE:NIFTY 50"))
     timeframe: str = Field(default_factory=lambda: os.getenv("TIMEFRAME", "5minute"))
 
+    # Cryptocurrency Settings
+    broker: str = Field(default_factory=lambda: os.getenv("BROKER", "zerodha").lower())  # "zerodha" or "crypto"
+    crypto_exchange: str = Field(default_factory=lambda: os.getenv("CRYPTO_EXCHANGE", "binance").lower())
+    crypto_testnet: bool = Field(default_factory=lambda: os.getenv("CRYPTO_TESTNET", "True").lower() in ("true", "1", "yes"))
+    crypto_api_key: str = Field(default_factory=lambda: os.getenv("CRYPTO_API_KEY", ""))
+    crypto_api_secret: str = Field(default_factory=lambda: os.getenv("CRYPTO_API_SECRET", ""))
+    crypto_api_password: str = Field(default_factory=lambda: os.getenv("CRYPTO_API_PASSWORD", ""))
+    crypto_default_symbol: str = Field(default_factory=lambda: os.getenv("CRYPTO_DEFAULT_SYMBOL", "BTC/USDT"))
+    crypto_timeframe: str = Field(default_factory=lambda: os.getenv("CRYPTO_TIMEFRAME", "5m"))
+    crypto_paper_initial_capital: float = Field(default_factory=lambda: float(os.getenv("CRYPTO_PAPER_INITIAL_CAPITAL", "10000.0")))
+    crypto_maker_fee: float = Field(default_factory=lambda: float(os.getenv("CRYPTO_MAKER_FEE", "0.0002")))  # 0.02%
+    crypto_taker_fee: float = Field(default_factory=lambda: float(os.getenv("CRYPTO_TAKER_FEE", "0.0005")))  # 0.05%
+    crypto_slippage_pct: float = Field(default_factory=lambda: float(os.getenv("CRYPTO_SLIPPAGE_PCT", "0.0002")))  # 0.02%
+
 
 settings = Settings()

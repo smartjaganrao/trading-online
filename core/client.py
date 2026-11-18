@@ -179,8 +179,17 @@ class PaperTradingClient(BaseBrokerClient):
 
         # 3. New Entry
         stop_loss, target = self.risk_manager.calculate_levels(fill_price, transaction_type)
-        # For index options (1 lot of NIFTY 75 qty), typical margin/premium is ~₹12,000 - ₹15,000
-        if "NIFTY" in symbol and quantity == 75:
+        is_fx = ForexEngine.is_forex(symbol)
+        if is_fx:
+            specs = ForexEngine.get_specs(symbol)
+            decimals = specs.get("decimals", 4) if specs else 4
+            stop_loss = round(stop_loss, decimals)
+            target = round(target, decimals)
+            # Currency derivatives margin on NSE CDS (~₹2,200 to ₹3,500 per lot)
+            base_margin = specs.get("margin_approx_inr", 2500.0) if specs else 2500.0
+            lots = max(1, quantity // 1000 if quantity >= 1000 else 1)
+            margin_required = base_margin * lots
+        elif "NIFTY" in symbol and quantity == 75:
             # Simulated 1 lot ATM option premium (~₹150/point)
             margin_required = 150.0 * 75  # ~₹11,250
         else:

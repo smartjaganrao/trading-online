@@ -10,6 +10,40 @@ from typing import Dict, Any
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 JOURNAL_PATH = DATA_DIR / "trades.csv"
+CRYPTO_JOURNAL_PATH = DATA_DIR / "crypto_trades.csv"
+
+
+def calculate_crypto_transaction_costs(
+    symbol: str,
+    quantity: float,
+    entry_price: float,
+    exit_price: float,
+    maker_fee_pct: float = 0.0002,
+    taker_fee_pct: float = 0.0005,
+    slippage_pct: float = 0.0002,
+    is_taker: bool = True,
+) -> Dict[str, float]:
+    """
+    Computes cryptocurrency market transaction costs:
+    - Exchange Fees: Maker (0.02%) or Taker (0.05%) fee on turnover
+    - Bid-Ask Spread Slippage: ~0.02% on deep liquidity pairs (BTC/USDT, ETH/USDT)
+    All costs are denominated in quote currency (typically USDT/USD).
+    """
+    entry_turnover = entry_price * quantity
+    exit_turnover = exit_price * quantity
+    turnover = entry_turnover + exit_turnover
+
+    fee_rate = taker_fee_pct if is_taker else maker_fee_pct
+    exchange_fee = round(turnover * fee_rate, 4)
+    slippage_cost = round(turnover * slippage_pct, 4)
+    total_charges = round(exchange_fee + slippage_cost, 4)
+
+    return {
+        "turnover": round(turnover, 4),
+        "exchange_fee": exchange_fee,
+        "slippage_cost": slippage_cost,
+        "total_charges": total_charges,
+    }
 
 
 from core.forex import ForexEngine
@@ -87,6 +121,55 @@ class TradeJournal:
     def __init__(self):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         self._ensure_header()
+        self._ensure_crypto_header()
+
+    def _ensure_crypto_header(self):
+        if not CRYPTO_JOURNAL_PATH.exists():
+            with open(CRYPTO_JOURNAL_PATH, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "timestamp",
+                    "order_id",
+                    "exchange",
+                    "mode",
+                    "symbol",
+                    "side",
+                    "quantity",
+                    "price",
+                    "stop_loss",
+                    "target",
+                    "action",
+                    "gross_pnl_usdt",
+                    "fee_usdt",
+                    "net_pnl_usdt",
+                    "reason",
+                ])
+
+    def log_crypto_trade(self, order_data: Dict[str, Any], exchange: str = "binance", mode: str = "PAPER", reason: str = ""):
+        self._ensure_crypto_header()
+        gross_pnl = order_data.get("gross_pnl", 0.0)
+        charges = order_data.get("charges", 0.0)
+        net_pnl = order_data.get("pnl", 0.0)
+
+        with open(CRYPTO_JOURNAL_PATH, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                order_data.get("order_id", "N/A"),
+                exchange.upper(),
+                mode,
+                order_data.get("symbol", "N/A"),
+                order_data.get("side", "N/A"),
+                order_data.get("quantity", 0.0),
+                order_data.get("fill_price", 0.0),
+                order_data.get("stop_loss", 0.0),
+                order_data.get("target", 0.0),
+                order_data.get("action", "ORDER"),
+                round(gross_pnl, 4),
+                round(charges, 4),
+                round(net_pnl, 4),
+                reason,
+            ])
 
     def _ensure_header(self):
         if not JOURNAL_PATH.exists():
